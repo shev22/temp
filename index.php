@@ -3,8 +3,7 @@
 
 
                function getCommentsStatsForResource(ResourceMetadata $resourceMetadata, Collection $regions): array { // Convert the
-             
-               // Convert collections to arrays of AGS codes
+          // Convert collections to arrays of AGS codes
         $regionAgsCodes = $regions->pluck('ags_code')->toArray();
         $distributionAreaAgsCodes = $distributionArea->pluck('ags_code')->toArray();
 
@@ -17,15 +16,15 @@
         $totalCommentsResult = DB::select($totalCommentsSql, [$resourceMetadata->resource_id]);
         $totalComments = $totalCommentsResult[0]->total_comments ?? 0;
 
-        // SQL to get comments count per region
+        // SQL to get comments count per region, including region title and type
         $commentsPerRegionSql = sprintf(
-            'SELECT r.ags_code, COUNT(c.id) AS comments_count
+            'SELECT r.ags_code, r.title, r.type, COUNT(c.id) AS comments_count
              FROM regions r
              LEFT JOIN zip_codes z ON r.ags_code = z.region_ags_code
              LEFT JOIN users u ON z.zip_code = u.zip
              LEFT JOIN comments c ON u.id = c.user_id AND c.resource_id = ?
              WHERE r.ags_code IN (%s)
-             GROUP BY r.ags_code',
+             GROUP BY r.ags_code, r.title, r.type',
             implode(',', array_fill(0, count($regionAgsCodes), '?'))
         );
 
@@ -36,24 +35,28 @@
         $commentsPerRegionResults = DB::select($commentsPerRegionSql, $bindings);
 
         // Initialize the comments per region array with all regions and default count of 0
-        $commentsPerRegion = $regions->pluck('ags_code')->mapWithKeys(function ($ags_code) {
-            return [$ags_code => 0];
+        $commentsPerRegion = $regions->mapWithKeys(function ($region) {
+            return [$region->ags_code => [
+                'title' => $region->title,
+                'type' => $region->type,
+                'comments_count' => 0
+            ]];
         })->toArray();
 
         // Update the comments count for regions with actual data
         foreach ($commentsPerRegionResults as $result) {
-            $commentsPerRegion[$result->ags_code] = $result->comments_count;
+            $commentsPerRegion[$result->ags_code]['comments_count'] = $result->comments_count;
         }
 
         // Calculate the comment counts within and outside the distribution area
         $commentsWithinDistributionArea = 0;
         $commentsOutsideDistributionArea = 0;
 
-        foreach ($commentsPerRegion as $ags_code => $count) {
+        foreach ($commentsPerRegion as $ags_code => $data) {
             if (in_array($ags_code, $distributionAreaAgsCodes)) {
-                $commentsWithinDistributionArea += $count;
+                $commentsWithinDistributionArea += $data['comments_count'];
             } else {
-                $commentsOutsideDistributionArea += $count;
+                $commentsOutsideDistributionArea += $data['comments_count'];
             }
         }
 
