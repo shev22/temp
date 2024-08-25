@@ -3,13 +3,12 @@
 
 
                function getCommentsStatsForResource(ResourceMetadata $resourceMetadata, Collection $regions): array { // Convert the
-                $commentsStatsSql = sprintf(
-                    'SELECT 
-                        r.ags_code,
-                        r.title,
-                        r.type,
-                        COUNT(c.id) AS comments_count,
-                        SUM(CASE WHEN c.id IS NOT NULL THEN 1 ELSE 0 END) OVER() AS total_comments
+                $regionAgsCodes = $regions->pluck('ags_code')->toArray();
+                $distributionAreaAgsCodes = $distributionArea->pluck('ags_code')->toArray();
+        
+                // SQL to get all comments and group by region
+                $commentsSql = sprintf(
+                    'SELECT r.ags_code, r.title, r.type, COUNT(c.id) AS comments_count
                      FROM regions r
                      LEFT JOIN zip_codes z ON r.ags_code = z.region_ags_code
                      LEFT JOIN users u ON z.zip_code = u.zip
@@ -22,8 +21,11 @@
                 // Merge resource_id with the array of region AGS codes for binding
                 $bindings = array_merge([$resourceMetadata->resource_id], $regionAgsCodes);
         
-                // Execute the combined query to get the stats
-                $commentsStatsResults = DB::select($commentsStatsSql, $bindings);
+                // Execute the query to get all comments per region
+                $commentsResults = DB::select($commentsSql, $bindings);
+        
+                // Initialize total comments count
+                $totalComments = 0;
         
                 // Initialize the comments per region array with all regions and default count of 0
                 $commentsPerRegion = $regions->mapWithKeys(function ($region) {
@@ -34,13 +36,10 @@
                     ]];
                 })->toArray();
         
-                // Initialize total comments count
-                $totalComments = 0;
-        
-                // Update the comments count for regions with actual data and set total comments
-                foreach ($commentsStatsResults as $result) {
+                // Update the comments count for regions with actual data and calculate total comments
+                foreach ($commentsResults as $result) {
                     $commentsPerRegion[$result->ags_code]['comments_count'] = $result->comments_count;
-                    $totalComments = $result->total_comments;
+                    $totalComments += $result->comments_count;
                 }
         
                 // Calculate the comment counts within and outside the distribution area
@@ -63,4 +62,3 @@
                     'comments_outside_distribution_area' => $commentsOutsideDistributionArea,
                 ];
             }
-            
